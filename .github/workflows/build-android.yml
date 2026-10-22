@@ -24,22 +24,19 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Build Web Assets & Capacitor Android
         run: |
           mkdir -p www
           cp index.html www/
           cp "DIGITAL-KHEL.png" www/ || true
           cp "Arrow puzzle logo.png" www/ || true
-          npm install -g @capacitor/cli @capacitor/core
           npm install
-          npx cap add android || true
-          npx cap update android
+          npx @capacitor/cli create android --appName "Arrow Puzzle" --packageId "com.digitalkhel.arrowpuzzle" --web-dir www --controller-type none || true
+          npx cap sync android
 
       - name: Build Signed Release Bundle (AAB)
         run: |
+          export ANDROID_HOME=$HOME/android-sdk
           keytool -genkey -v -keystore release.keystore -alias dkkey -keyalg RSA -keysize 2048 -validity 10000 -storepass digitalkhel123 -keypass digitalkhel123 -dname "CN=Digital Khel, O=Digital Khel, C=IN"
           cd android
           chmod +x gradlew
