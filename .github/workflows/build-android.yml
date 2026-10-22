@@ -1,4 +1,4 @@
-name: Build Android AAB
+name: Build Android AAB & APK
 
 on:
   push:
@@ -31,19 +31,43 @@ jobs:
           cp "DIGITAL-KHEL.png" www/ || true
           cp "Arrow puzzle logo.png" www/ || true
           npm install
-          npx @capacitor/cli create android --appName "Arrow Puzzle" --packageId "com.digitalkhel.arrowpuzzle" --web-dir www --controller-type none || true
+          npx cap add android || true
           npx cap sync android
 
-      - name: Build Signed Release Bundle (AAB)
+      - name: Inject Live AdMob & Meta App IDs + App Icon
         run: |
-          export ANDROID_HOME=$HOME/android-sdk
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          STRINGS="android/app/src/main/res/values/strings.xml"
+
+          if [ -f "$STRINGS" ]; then
+            sed -i 's|</resources>|    <string name="facebook_app_id">953250167441885</string>\n    <string name="facebook_client_token">d5435ea514ff2a885c8d48939832af0f</string>\n</resources>|g' "$STRINGS"
+          fi
+
+          if [ -f "$MANIFEST" ]; then
+            sed -i 's|</application>|    <meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="ca-app-pub-9990400518181461~1917528301"/>\n        <meta-data android:name="com.facebook.sdk.ApplicationId" android:value="@string/facebook_app_id"/>\n        <meta-data android:name="com.facebook.sdk.ClientToken" android:value="@string/facebook_client_token"/>\n    </application>|g' "$MANIFEST"
+          fi
+
+          if [ -f "Arrow puzzle logo.png" ]; then
+            for dir in android/app/src/main/res/mipmap-*; do
+              cp "Arrow puzzle logo.png" "$dir/ic_launcher.png" 2>/dev/null || true
+              cp "Arrow puzzle logo.png" "$dir/ic_launcher_round.png" 2>/dev/null || true
+              cp "Arrow puzzle logo.png" "$dir/ic_launcher_foreground.png" 2>/dev/null || true
+            done
+          fi
+
+      - name: Build Signed Release Bundle (AAB) & Test APK
+        run: |
           keytool -genkey -v -keystore release.keystore -alias dkkey -keyalg RSA -keysize 2048 -validity 10000 -storepass digitalkhel123 -keypass digitalkhel123 -dname "CN=Digital Khel, O=Digital Khel, C=IN"
           cd android
           chmod +x gradlew
-          ./gradlew bundleRelease -Pandroid.injected.signing.store.file=../release.keystore -Pandroid.injected.signing.store.password=digitalkhel123 -Pandroid.injected.signing.key.alias=dkkey -Pandroid.injected.signing.key.password=digitalkhel123
+          ./gradlew assembleDebug
+          ./gradlew bundleRelease -Pandroid.injected.signing.store.file=$GITHUB_WORKSPACE/release.keystore -Pandroid.injected.signing.store.password=digitalkhel123 -Pandroid.injected.signing.key.alias=dkkey -Pandroid.injected.signing.key.password=digitalkhel123
 
-      - name: Upload Artifacts (AAB File)
+      - name: Upload Artifacts (AAB & APK)
         uses: actions/upload-artifact@v4
         with:
-          name: Arrow-Puzzle-AAB
-          path: android/app/build/outputs/bundle/release/*.aab
+          name: Digital-Khel-Arrow-Puzzle-Release
+          path: |
+            android/app/build/outputs/bundle/release/*.aab
+            android/app/build/outputs/apk/debug/*.apk
+            release.keystore
