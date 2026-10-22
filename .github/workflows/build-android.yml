@@ -1,4 +1,4 @@
-name: Build Android AAB & APK
+name: Final Working Android Build
 
 on:
   push:
@@ -10,10 +10,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Code
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -24,17 +24,52 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Build Web Assets & Capacitor Android
+      - name: Clean Setup Capacitor & Android Platform
         run: |
+          # 1. Remove any broken old configs or folders
+          rm -rf www android node_modules package.json package-lock.json capacitor.config.json capacitor.config.ts
+
+          # 2. Create www folder and copy HTML + Logos
           mkdir -p www
-          cp index.html www/
-          cp "DIGITAL-KHEL.png" www/ || true
-          cp "Arrow puzzle logo.png" www/ || true
+          HTML_FILE=$(find . -maxdepth 2 -iname "*.html*" | head -n 1)
+          cp "$HTML_FILE" www/index.html
+
+          DK_LOGO=$(find . -maxdepth 2 -iname "DIGITAL-KHEL*" | head -n 1)
+          if [ -n "$DK_LOGO" ]; then cp "$DK_LOGO" "www/DIGITAL-KHEL.png"; fi
+
+          GAME_LOGO=$(find . -maxdepth 2 -iname "Arrow*logo*" | head -n 1)
+          if [ -n "$GAME_LOGO" ]; then cp "$GAME_LOGO" "www/Arrow puzzle logo.png"; fi
+
+          # 3. Create 100% clean package.json
+          cat << 'EOF' > package.json
+          {
+            "name": "arrow-puzzle",
+            "version": "1.0.0",
+            "private": true,
+            "dependencies": {
+              "@capacitor/core": "6.1.2",
+              "@capacitor/cli": "6.1.2",
+              "@capacitor/android": "6.1.2",
+              "@capacitor-community/admob": "6.0.0"
+            }
+          }
+          EOF
+
+          # 4. Create 100% clean capacitor.config.json (No deprecated options!)
+          cat << 'EOF' > capacitor.config.json
+          {
+            "appId": "com.digitalkhel.arrowpuzzle",
+            "appName": "Arrow Puzzle",
+            "webDir": "www"
+          }
+          EOF
+
+          # 5. Install and Add Android Platform
           npm install
-          npx cap add android || true
+          npx cap add android
           npx cap sync android
 
-      - name: Inject Live AdMob & Meta App IDs + App Icon
+      - name: Inject AdMob & Meta IDs + App Icon
         run: |
           MANIFEST="android/app/src/main/AndroidManifest.xml"
           STRINGS="android/app/src/main/res/values/strings.xml"
@@ -47,23 +82,28 @@ jobs:
             sed -i 's|</application>|    <meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="ca-app-pub-9990400518181461~1917528301"/>\n        <meta-data android:name="com.facebook.sdk.ApplicationId" android:value="@string/facebook_app_id"/>\n        <meta-data android:name="com.facebook.sdk.ClientToken" android:value="@string/facebook_client_token"/>\n    </application>|g' "$MANIFEST"
           fi
 
-          if [ -f "Arrow puzzle logo.png" ]; then
+          if [ -f "www/Arrow puzzle logo.png" ]; then
             for dir in android/app/src/main/res/mipmap-*; do
-              cp "Arrow puzzle logo.png" "$dir/ic_launcher.png" 2>/dev/null || true
-              cp "Arrow puzzle logo.png" "$dir/ic_launcher_round.png" 2>/dev/null || true
-              cp "Arrow puzzle logo.png" "$dir/ic_launcher_foreground.png" 2>/dev/null || true
+              cp "www/Arrow puzzle logo.png" "$dir/ic_launcher.png" 2>/dev/null || true
+              cp "www/Arrow puzzle logo.png" "$dir/ic_launcher_round.png" 2>/dev/null || true
+              cp "www/Arrow puzzle logo.png" "$dir/ic_launcher_foreground.png" 2>/dev/null || true
             done
           fi
 
-      - name: Build Signed Release Bundle (AAB) & Test APK
+      - name: Generate Keystore & Build Signed AAB + APK
         run: |
           keytool -genkey -v -keystore release.keystore -alias dkkey -keyalg RSA -keysize 2048 -validity 10000 -storepass digitalkhel123 -keypass digitalkhel123 -dname "CN=Digital Khel, O=Digital Khel, C=IN"
+
           cd android
           chmod +x gradlew
           ./gradlew assembleDebug
-          ./gradlew bundleRelease -Pandroid.injected.signing.store.file=$GITHUB_WORKSPACE/release.keystore -Pandroid.injected.signing.store.password=digitalkhel123 -Pandroid.injected.signing.key.alias=dkkey -Pandroid.injected.signing.key.password=digitalkhel123
+          ./gradlew bundleRelease \
+            -Pandroid.injected.signing.store.file=$GITHUB_WORKSPACE/release.keystore \
+            -Pandroid.injected.signing.store.password=digitalkhel123 \
+            -Pandroid.injected.signing.key.alias=dkkey \
+            -Pandroid.injected.signing.key.password=digitalkhel123
 
-      - name: Upload Artifacts (AAB & APK)
+      - name: Upload Signed AAB & APK
         uses: actions/upload-artifact@v4
         with:
           name: Digital-Khel-Arrow-Puzzle-Release
